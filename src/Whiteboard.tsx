@@ -58,8 +58,28 @@ const COLORS = [
 
 export const Whiteboard: React.FC<WhiteboardProps> = ({
   channelId,
-  userName = 'Dev_' + Math.floor(100 + Math.random() * 900)
+  userName: propUserName
 }) => {
+  // Stable user ID and name per browser session
+  const [clientId] = useState(() => {
+    let id = sessionStorage.getItem('whiteboard_client_id');
+    if (!id) {
+      id = 'client_' + Math.random().toString(36).substring(2, 9);
+      sessionStorage.setItem('whiteboard_client_id', id);
+    }
+    return id;
+  });
+
+  const [displayName] = useState(() => {
+    if (propUserName) return propUserName;
+    let name = sessionStorage.getItem('whiteboard_user_name');
+    if (!name) {
+      name = 'Dev_' + Math.floor(100 + Math.random() * 900);
+      sessionStorage.setItem('whiteboard_user_name', name);
+    }
+    return name;
+  });
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [elements, setElements] = useState<DrawElement[]>([]);
   const [currentTool, setCurrentTool] = useState<ToolType>('pen');
@@ -68,10 +88,31 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentDrawing, setCurrentDrawing] = useState<DrawElement | null>(null);
 
-  // Realtime Presence / Cursors
-  const [remoteCursors, setRemoteCursors] = useState<Record<string, CursorPosition>>({});
+  // Realtime Presence / Cursors with timestamp for clean-up
+  const [remoteCursors, setRemoteCursors] = useState<Record<string, CursorPosition & { lastSeen: number }>>({});
   const [userColor] = useState(() => COLORS[Math.floor(Math.random() * COLORS.length)]);
   const channelRef = useRef<any>(null);
+  const lastCursorSendRef = useRef<number>(0);
+
+  // Clean stale cursors every 2 seconds
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setRemoteCursors(prev => {
+        let changed = false;
+        const next: Record<string, CursorPosition & { lastSeen: number }> = {};
+        for (const [id, c] of Object.entries(prev)) {
+          if (now - c.lastSeen < 3000) {
+            next[id] = c;
+          } else {
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 2000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Load existing whiteboard state and connect Realtime Broadcast
   useEffect(() => {
@@ -98,7 +139,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
 
     // Setup Supabase Realtime channel for drawing strokes & cursor presence
     const channel = supabase.channel(`board_${channelId}`, {
-      config: { broadcast: { self: false }, presence: { key: userName } }
+      config: { broadcast: { self: false } }
     });
 
     channel
@@ -112,19 +153,16 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       })
       .on('broadcast', { event: 'cursor_move' }, ({ payload }) => {
         if (!isMounted) return;
+        if (payload.clientId === clientId) return; // Don't show own cursor
         setRemoteCursors(prev => ({
           ...prev,
-          [payload.senderId]: payload
+          [payload.clientId]: {
+            ...payload,
+            lastSeen: Date.now()
+          }
         }));
       })
-      .on('presence', { event: 'sync' }, () => {
-        // presence sync
-      })
-      .subscribe(status => {
-        if (status === 'SUBSCRIBED') {
-          channel.track({ name: userName, color: userColor });
-        }
-      });
+      .subscribe();
 
     channelRef.current = channel;
 
@@ -134,7 +172,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         supabase.removeChannel(channelRef.current);
       }
     };
-  }, [channelId, userName, userColor]);
+  }, [channelId, clientId]);
 
   // Persist board to supabase helper (debounced in state)
   const persistBoard = async (newElements: DrawElement[]) => {
@@ -263,7 +301,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
           x,
           y,
           text: text.trim(),
-          author: userName
+          author: displayName
         };
         const updated = [...elements, textEl];
         setElements(updated);
@@ -288,7 +326,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         color: currentColor,
         size: currentTool === 'eraser' ? strokeSize * 5 : strokeSize,
         points: [{ x, y }],
-        author: userName
+        author: displayName
       });
     } else {
       setCurrentDrawing({
@@ -302,7 +340,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         height: 0,
         endX: x,
         endY: y,
-        author: userName
+        author: displayName
       });
     }
   };
@@ -310,14 +348,16 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const { x, y } = getCanvasCoords(e);
 
-    // Broadcast cursor position to others
-    if (channelRef.current) {
+    // Throttle cursor broadcast to ~30fps (every 33ms) to avoid flooding and render loops
+    const now = Date.now();
+    if (channelRef.current && now - lastCursorSendRef.current > 35) {
+      lastCursorSendRef.current = now;
       channelRef.current.send({
         type: 'broadcast',
         event: 'cursor_move',
         payload: {
-          senderId: userName,
-          name: userName,
+          clientId,
+          name: displayName,
           color: userColor,
           x,
           y
@@ -555,7 +595,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
 
         {/* Remote Cursors Overlay */}
         {Object.entries(remoteCursors).map(([id, cursor]) => {
-          if (id === userName) return null;
+          if (id === clientId) return null;
           return (
             <div
               key={id}
