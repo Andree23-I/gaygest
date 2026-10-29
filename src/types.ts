@@ -153,6 +153,7 @@ export interface GameProject {
   engine: string;
   targetPlatform: string;
   description: string;
+  accessCode?: string; // Codice segreto / PIN per accedere al progetto
   githubRepo?: string; // Es. "username/repository-gioco"
   githubBranch?: string; // Es. "main" o "master"
   createdAt: string;

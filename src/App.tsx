@@ -20,7 +20,10 @@ import {
   Cloud,
   CloudOff,
   RefreshCw,
-  PenTool
+  PenTool,
+  Lock,
+  Key,
+  ShieldCheck
 } from 'lucide-react';
 import { Whiteboard } from './Whiteboard';
 import type {
@@ -176,6 +179,30 @@ export function App() {
   const [newProjGithub, setNewProjGithub] = useState('');
   const [newProjBranch, setNewProjBranch] = useState('main');
   const [newProjDesc, setNewProjDesc] = useState('');
+  const [newProjAccessCode, setNewProjAccessCode] = useState('');
+
+  // Access Code PIN prompt modal state
+  const [pinPromptProjId, setPinPromptProjId] = useState<string | null>(null);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+
+  // List of project IDs unlocked in this browser session
+  const [unlockedProjects, setUnlockedProjects] = useState<string[]>(() => {
+    try {
+      const saved = sessionStorage.getItem('gamedev_unlocked_projects');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const markProjectUnlocked = (projId: string) => {
+    setUnlockedProjects(prev => {
+      const next = Array.from(new Set([...prev, projId]));
+      sessionStorage.setItem('gamedev_unlocked_projects', JSON.stringify(next));
+      return next;
+    });
+  };
 
   // Modals inside project
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -249,8 +276,12 @@ export function App() {
     proj.description = newProjDesc;
     proj.githubRepo = newProjGithub.trim();
     proj.githubBranch = newProjBranch.trim() || 'main';
+    if (newProjAccessCode.trim()) {
+      proj.accessCode = newProjAccessCode.trim();
+    }
     setProjects(prev => [proj, ...prev]);
     syncProjectToSupabase(proj);
+    markProjectUnlocked(proj.id);
     setActiveProjectId(proj.id);
     setShowNewProjModal(false);
     setNewProjTitle('');
@@ -259,6 +290,7 @@ export function App() {
     setNewProjGithub('');
     setNewProjBranch('main');
     setNewProjDesc('');
+    setNewProjAccessCode('');
   };
 
   // Handler: Elimina Progetto
@@ -361,12 +393,21 @@ export function App() {
             const taskDone = proj.tasks.filter(t => t.status === 'done').length;
             const openBugs = proj.bugs.filter(b => b.status !== 'Chiuso').length;
 
+            const isProtected = Boolean(proj.accessCode && proj.accessCode.trim());
+            const isUnlocked = !isProtected || unlockedProjects.includes(proj.id);
+
             return (
               <div
                 key={proj.id}
                 onClick={() => {
-                  setActiveProjectId(proj.id);
-                  setActiveTab('board');
+                  if (isProtected && !unlockedProjects.includes(proj.id)) {
+                    setPinPromptProjId(proj.id);
+                    setPinInput('');
+                    setPinError('');
+                  } else {
+                    setActiveProjectId(proj.id);
+                    setActiveTab('board');
+                  }
                 }}
                 className="ui-panel"
                 style={{
@@ -375,20 +416,34 @@ export function App() {
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '10px',
+                  border: isProtected && !isUnlocked ? '1px solid rgba(234, 179, 8, 0.4)' : undefined,
                   transition: 'background-color 0.15s, border-color 0.15s'
                 }}
                 onMouseEnter={e => {
                   e.currentTarget.style.backgroundColor = 'var(--bg-panel)';
-                  e.currentTarget.style.borderColor = 'var(--border-light)';
+                  e.currentTarget.style.borderColor = isProtected && !isUnlocked ? 'rgba(234, 179, 8, 0.8)' : 'var(--border-light)';
                 }}
                 onMouseLeave={e => {
                   e.currentTarget.style.backgroundColor = 'var(--bg-surface)';
-                  e.currentTarget.style.borderColor = 'var(--border-color)';
+                  e.currentTarget.style.borderColor = isProtected && !isUnlocked ? 'rgba(234, 179, 8, 0.4)' : 'var(--border-color)';
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
-                    <h2 style={{ fontSize: '16px', fontWeight: 600, color: '#fff' }}>{proj.title}</h2>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <h2 style={{ fontSize: '16px', fontWeight: 600, color: '#fff', margin: 0 }}>{proj.title}</h2>
+                      {isProtected && (
+                        isUnlocked ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10px', color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '1px 6px', borderRadius: '3px' }}>
+                            <ShieldCheck size={11} /> Sbloccato
+                          </span>
+                        ) : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10px', color: '#eab308', background: 'rgba(234,179,8,0.1)', padding: '1px 6px', borderRadius: '3px' }}>
+                            <Lock size={11} /> Protetto da Codice
+                          </span>
+                        )
+                      )}
+                    </div>
                     <span style={{ fontSize: '12px', color: 'var(--color-primary)' }}>{proj.genre || 'Nessun genere'}</span>
                   </div>
                   <button
@@ -525,12 +580,28 @@ export function App() {
                 <div>
                   <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>Breve Descrizione / Idea</label>
                   <textarea
-                    rows={3}
+                    rows={2}
                     placeholder="Riassunto di base del progetto e del target..."
                     value={newProjDesc}
                     onChange={e => setNewProjDesc(e.target.value)}
                     style={{ width: '100%', resize: 'none' }}
                   />
+                </div>
+
+                <div style={{ backgroundColor: 'var(--bg-surface)', padding: '10px', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
+                  <label style={{ fontSize: '12px', color: '#60a5fa', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                    <Key size={13} /> Codice di Accesso / PIN del Progetto (Opzionale)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Es. GAME2026, 1234, SECRET..."
+                    value={newProjAccessCode}
+                    onChange={e => setNewProjAccessCode(e.target.value)}
+                    style={{ width: '100%' }}
+                  />
+                  <span style={{ fontSize: '11px', color: 'var(--text-dim)', display: 'block', marginTop: '3px' }}>
+                    Se impostato, gli altri utenti dovranno digitare questo codice per aprire e visualizzare il progetto.
+                  </span>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
@@ -541,6 +612,87 @@ export function App() {
             </div>
           </div>
         )}
+
+        {/* Modal: Inserisci PIN / Codice di Accesso */}
+        {pinPromptProjId && (() => {
+          const target = projects.find(p => p.id === pinPromptProjId);
+          if (!target) return null;
+
+          const handleUnlock = (e: React.FormEvent) => {
+            e.preventDefault();
+            if (pinInput.trim() === (target.accessCode || '').trim()) {
+              markProjectUnlocked(target.id);
+              setActiveProjectId(target.id);
+              setActiveTab('board');
+              setPinPromptProjId(null);
+              setPinInput('');
+              setPinError('');
+            } else {
+              setPinError('Codice di accesso non corretto. Riprova.');
+            }
+          };
+
+          return (
+            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 120, padding: '16px' }}>
+              <div className="ui-panel" style={{ backgroundColor: 'var(--bg-panel)', maxWidth: '400px', width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px', border: '1px solid rgba(234, 179, 8, 0.4)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ padding: '8px', borderRadius: '50%', backgroundColor: 'rgba(234, 179, 8, 0.1)', color: '#eab308' }}>
+                    <Lock size={20} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#fff', margin: 0 }}>Progetto Protetto</h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>{target.title}</p>
+                  </div>
+                </div>
+
+                <p style={{ fontSize: '13px', color: 'var(--text-dim)', margin: 0, lineHeight: '1.4' }}>
+                  Per accedere ai dati, alla lavagna e ai moduli di questo progetto è necessario inserire il relativo <strong>codice di accesso</strong>.
+                </p>
+
+                <form onSubmit={handleUnlock} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Codice di Accesso / Password</label>
+                    <input
+                      type="password"
+                      autoFocus
+                      required
+                      placeholder="Inserisci il codice..."
+                      value={pinInput}
+                      onChange={e => {
+                        setPinInput(e.target.value);
+                        setPinError('');
+                      }}
+                      style={{ width: '100%', fontSize: '14px', letterSpacing: '1px' }}
+                    />
+                  </div>
+
+                  {pinError && (
+                    <div style={{ color: 'var(--color-danger)', fontSize: '12px', fontWeight: 500 }}>
+                      ⚠️ {pinError}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPinPromptProjId(null);
+                        setPinInput('');
+                        setPinError('');
+                      }}
+                      className="ui-button"
+                    >
+                      Annulla
+                    </button>
+                    <button type="submit" className="ui-button ui-button-primary">
+                      <Key size={13} /> Sblocca ed Entra
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   }
@@ -601,6 +753,36 @@ export function App() {
                 <span style={{ fontSize: '11px', color: 'var(--text-dim)', padding: '1px 5px', border: '1px solid var(--border-color)', borderRadius: '3px' }}>
                   {currentProject.engine}
                 </span>
+                {currentProject.accessCode ? (
+                  <button
+                    onClick={() => {
+                      const newCode = prompt('Modifica o rimuovi il codice di accesso del progetto (lascia vuoto per rimuovere la protezione):', currentProject.accessCode);
+                      if (newCode !== null) {
+                        updateCurrentProject(p => ({ ...p, accessCode: newCode.trim() || undefined }));
+                      }
+                    }}
+                    className="ui-button"
+                    style={{ padding: '1px 6px', fontSize: '11px', color: '#eab308', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    title="Clicca per modificare o rimuovere il codice di accesso"
+                  >
+                    <Lock size={11} /> Codice: ••••
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const newCode = prompt('Imposta un codice di accesso / PIN per proteggere questo progetto:');
+                      if (newCode && newCode.trim()) {
+                        updateCurrentProject(p => ({ ...p, accessCode: newCode.trim() }));
+                        markProjectUnlocked(currentProject.id);
+                      }
+                    }}
+                    className="ui-button"
+                    style={{ padding: '1px 6px', fontSize: '11px', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    title="Imposta un codice di accesso"
+                  >
+                    <Key size={11} /> + Proteggi con Codice
+                  </button>
+                )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
                 <span style={{ color: 'var(--text-muted)' }}>
