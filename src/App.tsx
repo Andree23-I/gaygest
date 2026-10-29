@@ -16,7 +16,10 @@ import {
   CheckSquare,
   Square,
   Gamepad2,
-  ExternalLink
+  ExternalLink,
+  Cloud,
+  CloudOff,
+  RefreshCw
 } from 'lucide-react';
 import type {
   GameProject,
@@ -42,6 +45,7 @@ import type {
   KeyStatus
 } from './types';
 import { INITIAL_PROJECTS, createEmptyProject } from './initialData';
+import { supabase } from './supabase';
 
 export function App() {
   // Projects collection
@@ -49,6 +53,108 @@ export function App() {
     const s = localStorage.getItem('gamedev_projects_v3');
     return s ? JSON.parse(s) : INITIAL_PROJECTS;
   });
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'offline'>('syncing');
+
+  // Load from Supabase on mount & setup Realtime subscription
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadFromSupabase() {
+      try {
+        setSyncStatus('syncing');
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .order('updated_at', { ascending: false });
+
+        if (error) {
+          console.warn('Errore lettura Supabase (verificare se la tabella esiste):', error.message);
+          setSyncStatus('error');
+          return;
+        }
+
+        if (data && data.length > 0) {
+          const loaded: GameProject[] = data.map(item => item.data);
+          if (isMounted) {
+            setProjects(loaded);
+            setSyncStatus('synced');
+          }
+        } else {
+          // If remote is empty, seed with initial projects
+          const initial = INITIAL_PROJECTS;
+          for (const p of initial) {
+            await supabase.from('projects').upsert({ id: p.id, data: p, updated_at: new Date().toISOString() });
+          }
+          if (isMounted) setSyncStatus('synced');
+        }
+      } catch (err) {
+        console.error('Supabase connection error:', err);
+        setSyncStatus('error');
+      }
+    }
+
+    loadFromSupabase();
+
+    // Realtime channel
+    const channel = supabase
+      .channel('projects_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'projects' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newProj: GameProject = payload.new.data;
+            setProjects(prev => {
+              if (prev.some(p => p.id === newProj.id)) return prev;
+              return [newProj, ...prev];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedProj: GameProject = payload.new.data;
+            setProjects(prev => prev.map(p => (p.id === updatedProj.id ? updatedProj : p)));
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            setProjects(prev => prev.filter(p => p.id !== deletedId));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Helper to persist single project to Supabase
+  const syncProjectToSupabase = async (proj: GameProject) => {
+    try {
+      setSyncStatus('syncing');
+      const { error } = await supabase.from('projects').upsert({
+        id: proj.id,
+        data: proj,
+        updated_at: new Date().toISOString()
+      });
+      if (error) {
+        console.warn('Supabase upsert error:', error.message);
+        setSyncStatus('error');
+      } else {
+        setSyncStatus('synced');
+      }
+    } catch {
+      setSyncStatus('error');
+    }
+  };
+
+  const deleteProjectFromSupabase = async (id: string) => {
+    try {
+      setSyncStatus('syncing');
+      const { error } = await supabase.from('projects').delete().eq('id', id);
+      if (error) setSyncStatus('error');
+      else setSyncStatus('synced');
+    } catch {
+      setSyncStatus('error');
+    }
+  };
 
   // Current active project ID. If null, we are on the Project Selection Screen (Hub)
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => {
@@ -98,7 +204,7 @@ export function App() {
   const [newPress, setNewPress] = useState<Partial<MediaContact>>({ type: 'Streamer Twitch', keyStatus: 'Da Contattare' });
   const [newMilestone, setNewMilestone] = useState<Partial<GameMilestone>>({ phase: 'Vertical Slice', completed: false });
 
-  // Persist projects
+  // Persist projects to localStorage as local cache
   useEffect(() => {
     localStorage.setItem('gamedev_projects_v3', JSON.stringify(projects));
   }, [projects]);
@@ -116,15 +222,21 @@ export function App() {
 
   const updateCurrentProject = (updater: (prev: GameProject) => GameProject) => {
     if (!activeProjectId) return;
-    setProjects(prev =>
-      prev.map(p => {
+    setProjects(prev => {
+      let targetProj: GameProject | null = null;
+      const nextProjects = prev.map(p => {
         if (p.id === activeProjectId) {
           const updated = updater(p);
-          return { ...updated, updatedAt: new Date().toISOString().split('T')[0] };
+          targetProj = { ...updated, updatedAt: new Date().toISOString().split('T')[0] };
+          return targetProj;
         }
         return p;
-      })
-    );
+      });
+      if (targetProj) {
+        syncProjectToSupabase(targetProj);
+      }
+      return nextProjects;
+    });
   };
 
   // Handler: Crea Nuovo Progetto (con template vuoto pronto per inserire le cose)
@@ -136,6 +248,7 @@ export function App() {
     proj.githubRepo = newProjGithub.trim();
     proj.githubBranch = newProjBranch.trim() || 'main';
     setProjects(prev => [proj, ...prev]);
+    syncProjectToSupabase(proj);
     setActiveProjectId(proj.id);
     setShowNewProjModal(false);
     setNewProjTitle('');
@@ -151,9 +264,12 @@ export function App() {
     e.stopPropagation();
     if (confirm('Sei sicuro di voler eliminare questo progetto? Tutti i dati associati andranno persi.')) {
       setProjects(prev => prev.filter(p => p.id !== id));
+      deleteProjectFromSupabase(id);
       if (activeProjectId === id) setActiveProjectId(null);
     }
   };
+
+
 
   // Export / Import Multi-Project
   const exportAllProjects = () => {
@@ -197,9 +313,26 @@ export function App() {
             <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Gamepad2 size={22} color="#3b82f6" /> Gestionale GameDev - Seleziona Progetto
             </h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '4px' }}>
-              Scegli un progetto esistente da portare avanti oppure creane uno nuovo (con template vuoto).
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>
+                Scegli un progetto esistente da portare avanti oppure creane uno nuovo.
+              </p>
+              {syncStatus === 'synced' && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                  <Cloud size={12} /> Sincronizzato con Cloud
+                </span>
+              )}
+              {syncStatus === 'syncing' && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#3b82f6', background: 'rgba(59,130,246,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                  <RefreshCw size={12} className="spin" /> Sincronizzazione in corso...
+                </span>
+              )}
+              {syncStatus === 'error' && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#ef4444', background: 'rgba(239,68,68,0.1)', padding: '2px 8px', borderRadius: '4px' }} title="Crea la tabella 'projects' su Supabase se non l'hai ancora fatto">
+                  <CloudOff size={12} /> Errore Cloud (usando dati locali)
+                </span>
+              )}
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: '8px' }}>
