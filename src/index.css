@@ -1,0 +1,146 @@
+:root {
+  /* Stile Software Classico Desktop / Retro / Strumento Tecnico */
+  --bg-app: #181c24;
+  --bg-surface: #222733;
+  --bg-panel: #282e3d;
+  --bg-element: #323a4d;
+  --bg-hover: #3d465c;
+  
+  --border-color: #434c63;
+  --border-light: #596482;
+  --border-dark: #12151b;
+  
+  --text-main: #e2e8f0;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  
+  --color-primary: #3b82f6;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+
+  --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-system);
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar stile UI da software desktop */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border: 1px solid var(--border-dark);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-light);
+}
+
+/* Pannello standard da software tecnico */
+.ui-panel {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+/* Bottoni stile programma desktop classico */
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  background-color: var(--bg-element);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ui-button:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-light);
+}
+
+.ui-button:active {
+  background-color: var(--bg-panel);
+}
+
+.ui-button-primary {
+  background-color: #2563eb;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+.ui-button-primary:hover {
+  background-color: #1d4ed8;
+}
+
+.ui-button-danger {
+  background-color: #b91c1c;
+  border-color: #991b1b;
+  color: #fff;
+}
+.ui-button-danger:hover {
+  background-color: #991b1b;
+}
+
+/* Input standard classici */
+input[type="text"],
+input[type="number"],
+input[type="date"],
+select,
+textarea {
+  background-color: #161a22;
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 6px 9px;
+  font-size: 13px;
+  border-radius: 3px;
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--color-primary);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th, td {
+  border: 1px solid var(--border-color);
+  padding: 6px 10px;
+}
+
+th {
+  background-color: var(--bg-panel);
+  font-weight: 600;
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
