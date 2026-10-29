@@ -19,8 +19,10 @@ import {
   ExternalLink,
   Cloud,
   CloudOff,
-  RefreshCw
+  RefreshCw,
+  PenTool
 } from 'lucide-react';
+import { Whiteboard } from './Whiteboard';
 import type {
   GameProject,
   Task,
@@ -163,7 +165,7 @@ export function App() {
 
   // Active module tab inside a project
   const [activeTab, setActiveTab] = useState<
-    'board' | 'assets' | 'bugs' | 'vcs' | 'wiki' | 'finances' | 'marketing' | 'roadmap'
+    'board' | 'assets' | 'bugs' | 'vcs' | 'wiki' | 'finances' | 'marketing' | 'roadmap' | 'whiteboard'
   >('board');
 
   // Modal: Create New Project
@@ -669,7 +671,8 @@ export function App() {
             { id: 'wiki', label: '4. Knowledge Base & GDD', icon: BookOpen },
             { id: 'finances', label: '5. Finanze & Runway', icon: DollarSign },
             { id: 'marketing', label: '6. Marketing & Stampa', icon: Megaphone },
-            { id: 'roadmap', label: 'Milestone & Sprint', icon: Calendar }
+            { id: 'roadmap', label: 'Milestone & Sprint', icon: Calendar },
+            { id: 'whiteboard', label: '🎨 Lavagna Live', icon: PenTool }
           ].map(tab => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -1476,6 +1479,26 @@ export function App() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* MODULO: LAVAGNA REALTIME / COLLABORATIVA                 */}
+        {/* ======================================================== */}
+        {activeTab === 'whiteboard' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <PenTool size={18} color="#3b82f6" /> Lavagna Collaborativa in Tempo Reale
+                </h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '2px' }}>
+                  Disegna schemi di gioco, level design, appunti grafici e idee simultaneamente con il tuo team.
+                </p>
+              </div>
+            </div>
+
+            <Whiteboard channelId={currentProject.id} />
           </div>
         )}
       </main>
